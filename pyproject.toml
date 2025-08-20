@@ -1,0 +1,32 @@
+[project]
+name = "bds-adapter"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "benjigifford",email = "benjamingifford8@gmail.com"}
+]
+readme = "README.md"
+requires-python = "3.12"
+dependencies = [
+]
+
+[tool.poetry]
+name = "bds-adapter"
+version = "0.1.0"
+description = "BDS call recording to vCon adapter"
+authors = ["Your Name <your.email@example.com>"]
+
+[tool.poetry.dependencies]
+python = "^3.8"
+click = "^8.0.0"
+vcon = {path = "../vcon-lib"}
+
+[tool.poetry.dev-dependencies]
+pytest = "^7.0.0"
+
+[tool.poetry.scripts]
+bds-adapter = "bds_adapter.cli:main"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
