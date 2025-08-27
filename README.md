@@ -25,7 +25,7 @@ It focuses on the critical first 35 seconds of each call where required disclosu
 
 ```bash
 # Clone the repository
-git clone <repository-url>
+git clone https://github.com/benjigifford/bds-adapter
 
 # Install dependencies
 poetry install

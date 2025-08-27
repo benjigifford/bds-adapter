@@ -1,32 +1,48 @@
-import click
+import argparse
 import os
+from typing import Dict, Any
 from .adapter import BDSAdapter
 
-@click.command()
-@click.option('--input', required=True, help='Path to recording files')
-@click.option('--output', required=True, help='Path for output vCon files')
-@click.option('--max-files', type=int, help='Maximum files to process')
-@click.option('--agent-role', default='agent', help='Role name for agent')
-@click.option('--customer-role', default='customer', help='Role name for customer')
-def main(input: str, output: str, max_files: int, agent_role: str, customer_role: str):
-    """Convert BDS call recordings to vCon format."""
+def get_config() -> Dict[str, Any]:
+    """Get configuration from command line arguments."""
+    parser = argparse.ArgumentParser(description='Process BDS recordings to vCon format')
+    parser.add_argument('--recording-path', required=True, help='Path to recording files')
+    parser.add_argument('--output-path', required=True, help='Path for output files')
+    parser.add_argument('--s3-bucket', help='S3 bucket for output')
+    parser.add_argument('--s3-prefix', help='S3 prefix/folder for output')
     
-    if not os.path.exists(input):
-        click.echo(f"Error: Input path does not exist: {input}")
-        return 1
-        
+    args = parser.parse_args()
+    
     config = {
-        'recording_path': input,
-        'output_path': output,
-        'agent_role': agent_role,
-        'customer_role': customer_role
+        'recording_path': args.recording_path,
+        'output_path': args.output_path
     }
     
+    # Add S3 config if provided
+    if args.s3_bucket:
+        config['s3'] = {
+            'bucket': args.s3_bucket,
+            'prefix': args.s3_prefix
+        }
+        
+    return config
+
+def get_default_config():
+    return {
+        'recording_path': '/path/to/recordings',  # Update this path
+        'output_path': '/path/to/output',        # Update this path
+        's3': {
+            'bucket': 'my-vcon-bucket',          # Update bucket name
+            'prefix': 'vcon-files'               # Update prefix
+        }
+    }
+
+def main():
+    """Main entry point for the CLI."""
+    config = get_config()
     adapter = BDSAdapter(config)
-    processed = adapter.process_batch(max_files)
-    
-    click.echo(f"Successfully processed {len(processed)} recordings")
-    return 0
+    processed = adapter.process_batch()
+    print(f"Processed {len(processed)} files")
 
 if __name__ == '__main__':
     main()

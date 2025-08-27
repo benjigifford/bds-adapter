@@ -1,97 +1,95 @@
-from datetime import datetime
+from datetime import datetime, UTC
 import os
-from typing import Dict, Any, List
-from vcon import Vcon, Party, Dialog
+import json
 import uuid
+from typing import Dict, Any, List, Optional
+from vcon.vcon import Vcon
+from vcon.party import Party
+from vcon.dialog import Dialog
+from .s3 import S3Handler
 
 class BDSAdapter:
     """BDS Adapter for converting 35-second call recordings to vCon format."""
     
     def __init__(self, config: Dict[str, Any]):
-        """
-        Initialize adapter with configuration.
-        
-        Args:
-            config: Dictionary containing:
-                - recording_path: Path to input recordings
-                - output_path: Path for output vCon files
-                - agent_role: Role name for agent (default: 'agent')
-                - customer_role: Role name for customer (default: 'customer')
-        """
         self.recording_path = config.get('recording_path', '')
         self.output_path = config.get('output_path', '')
         self.agent_role = config.get('agent_role', 'agent')
         self.customer_role = config.get('customer_role', 'customer')
+        
+        s3_config = config.get('s3', {})
+        self.s3_handler = None
+        if s3_config and 'bucket' in s3_config:
+            self.s3_handler = S3Handler(
+                bucket=s3_config['bucket'],
+                prefix=s3_config.get('prefix')
+            )
 
     def process_recording(self, recording_file: str) -> Vcon:
-        """
-        Convert a single recording to vCon format.
-        
-        Args:
-            recording_file: Name of the recording file
-            
-        Returns:
-            Vcon object containing the recording data
-        """
-        vcon = Vcon()
-        
-        # Set required fields
-        vcon.id = str(uuid.uuid4())
-        vcon.created = datetime.utcnow().isoformat()
-        vcon.version = "1.1.0"
-        
+        """Convert a single recording to vCon format."""
+        vcon = Vcon.build_new()
+        timestamp = datetime.now(UTC).isoformat()
+
         # Add parties
-        agent = Party(role=self.agent_role)
-        customer = Party(role=self.customer_role)
-        vcon.parties = [agent, customer]
-        
-        # Add dialog with recording
-        dialog = Dialog()
-        dialog.id = str(uuid.uuid4())
-        dialog.type = "recording"
-        dialog.created = datetime.utcnow().isoformat()
-        
-        # Add recording details
-        recording_path = os.path.join(self.recording_path, recording_file)
-        dialog.recording_url = f"file://{recording_path}"
-        dialog.recording_format = "audio/mp3"
-        dialog.recording_duration = 35  # 35 seconds per requirement
-        
-        vcon.dialog = [dialog]
+        agent = Party(role=self.agent_role, type="person")
+        customer = Party(role=self.customer_role, type="person")
+        vcon.add_party(agent)
+        vcon.add_party(customer)
+
+        # Create dialog
+        dialog = Dialog(
+            id=str(uuid.uuid4()),
+            type="recording",
+            created_at=timestamp,
+            start=timestamp,
+            parties=[
+                {"role": self.agent_role, "type": "person"},
+                {"role": self.customer_role, "type": "person"}
+            ],
+            recording_url=f"file://{os.path.join(self.recording_path, recording_file)}",
+            recording_format="audio/mp3",
+            recording_duration=35
+        )
+
+        # Add dialog and return
+        vcon.add_dialog(dialog)
         return vcon
 
-    def process_batch(self, max_files: int = None) -> List[str]:
-        """
-        Process multiple recordings from input directory.
-        
-        Args:
-            max_files: Optional maximum number of files to process
-            
-        Returns:
-            List of processed vCon file paths
-        """
+    def process_batch(self, max_files: Optional[int] = None) -> List[str]:
+        """Process multiple recordings from input directory."""
         processed_files = []
-        
         os.makedirs(self.output_path, exist_ok=True)
         
-        for file in os.listdir(self.recording_path):
-            if not file.endswith('.mp3'):
-                continue
+        try:
+            files = sorted([f for f in os.listdir(self.recording_path) if f.endswith('.mp3')])
+            if max_files:
+                files = files[:max_files]
+            
+            for file in files:
+                try:
+                    vcon = self.process_recording(file)
+                    output_file = os.path.join(self.output_path, f"{vcon.id}.vcon.json")
+                    
+                    # Convert to dict for serialization
+                    vcon_data = {
+                        "version": vcon.version,
+                        "id": vcon.id,
+                        "created_at": vcon.created_at,
+                        "parties": vcon.parties,
+                        "dialog": vcon.dialog
+                    }
+                    
+                    # Write to file
+                    with open(output_file, 'w') as f:
+                        json.dump(vcon_data, f, indent=2)
                 
-            if max_files and len(processed_files) >= max_files:
-                break
-                
-            try:
-                vcon = self.process_recording(file)
-                output_file = os.path.join(
-                    self.output_path, 
-                    f"{vcon.id}.vcon.json"
-                )
-                vcon.save(output_file)
-                processed_files.append(output_file)
-                
-            except Exception as e:
-                print(f"Error processing {file}: {e}")
-                continue
-                
+                    processed_files.append(output_file)
+                    
+                except Exception as e:
+                    print(f"Error processing {file}: {str(e)}")
+                    continue
+    
+        except Exception as e:
+            print(f"Batch processing error: {str(e)}")
+    
         return processed_files
